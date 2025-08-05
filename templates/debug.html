@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug - One Night Werewolf Testing</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #2c3e50; color: white; }
+        button { padding: 15px 20px; margin: 10px; background: #e74c3c; color: white; border: none; cursor: pointer; border-radius: 5px; font-size: 16px; }
+        button:hover { background: #c0392b; }
+        .container { background: #34495e; padding: 20px; margin: 10px 0; border-radius: 10px; }
+        .test-button { background: #3498db; }
+        .test-button:hover { background: #2980b9; }
+        #messages { height: 300px; overflow-y: auto; background: #1a252f; padding: 10px; margin-top: 10px; border-radius: 5px; }
+        .scenario { margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>🧪 One Night Werewolf - Testing</h1>
+    
+    <div class="container">
+        <h3>🎯 Escenarios de Testing Automático</h3>
+        
+        <div class="scenario">
+            <h4>1️⃣ Lobo Solitario</h4>
+            <p>Prueba: 1 werewolf → Debe poder elegir carta del centro</p>
+            <button class="test-button" onclick="createTestRoom('lone_wolf')">Crear Test: 1 Lobo</button>
+        </div>
+        
+        <div class="scenario">
+            <h4>2️⃣ Múltiples Lobos</h4>
+            <p>Prueba: 2 werewolves → Deben verse entre ellos, avance automático</p>
+            <button class="test-button" onclick="createTestRoom('multiple_wolves')">Crear Test: 2 Lobos</button>
+        </div>
+        
+        <div class="scenario">
+            <h4>3️⃣ Sin Lobos</h4>
+            <p>Prueba: 0 werewolves → Fase salta automáticamente en 5 segundos</p>
+            <button class="test-button" onclick="createTestRoom('no_wolves')">Crear Test: 0 Lobos</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h3>🎮 Control de Testing</h3>
+        <div id="test-info" style="display: none;">
+            <p><strong>Sala de Testing:</strong> <span id="test-room-code">----</span></p>
+            <p><strong>Escenario:</strong> <span id="test-description">----</span></p>
+            <button onclick="startTestGame()" id="start-test-btn">🚀 Iniciar Test</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <h3>📋 Log de Testing</h3>
+        <div id="messages"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentTestRoom = '';
+
+        // Debug: Escuchar todos los eventos
+        socket.onAny((eventName, ...args) => {
+            console.log(`DEBUG: ${eventName}`, args);
+            addMessage(`EVENT: ${eventName} - ${JSON.stringify(args)}`);
+        });
+
+        socket.on('connect', function() {
+            addMessage('✅ Conectado al servidor de testing');
+        });
+
+        socket.on('test_room_created', function(data) {
+            currentTestRoom = data.room_code;
+            document.getElementById('test-room-code').textContent = data.room_code;
+            document.getElementById('test-description').textContent = data.config.description;
+            document.getElementById('test-info').style.display = 'block';
+            
+            addMessage(`🧪 Sala de testing creada: ${data.room_code}`);
+            addMessage(`📋 Escenario: ${data.config.description}`);
+            addMessage(`👥 Jugadores: ${data.config.players.join(', ')}`);
+            addMessage(`🎭 Roles: ${data.config.roles.join(', ')}`);
+        });
+
+        socket.on('game_started', function(data) {
+            addMessage('🎮 TEST: Juego iniciado - observa los eventos de lobos');
+        });
+
+        socket.on('your_role', function(data) {
+            addMessage(`🎭 Tu rol: ${data.role_name}`);
+        });
+
+        socket.on('werewolf_phase_info', function(data) {
+            if (data.is_lone_wolf) {
+                addMessage('✅ TEST PASSED: Lobo solitario detectado - deberían aparecer botones');
+            } else {
+                addMessage(`✅ TEST PASSED: Múltiples lobos detectados - otros: ${data.other_werewolves.map(w => w.username).join(', ')}`);
+            }
+        });
+
+        socket.on('night_phase_started', function(data) {
+            if (data.phase === 'werewolf') {
+                addMessage(`🌙 Fase de lobos iniciada`);
+            } else if (data.phase === 'seer') {
+                addMessage('✅ TEST: Fase avanzó correctamente a Pitonisa');
+            }
+        });
+
+        function createTestRoom(testType) {
+            addMessage(`🧪 Creando test: ${testType}`);
+            socket.emit('create_test_room', { test_type: testType });
+        }
+
+        function startTestGame() {
+            if (!currentTestRoom) {
+                addMessage('❌ Error: No hay sala de testing activa');
+                return;
+            }
+            
+            addMessage('🚀 Iniciando juego de testing...');
+            socket.emit('start_game');
+        }
+
+        function addMessage(message) {
+            const messagesDiv = document.getElementById('messages');
+            const messageElement = document.createElement('div');
+            messageElement.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+    </script>
+</body>
+</html>
