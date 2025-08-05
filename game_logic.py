@@ -1,9 +1,9 @@
 import random
 
-# Mapeo de roles en inglés a español (variable global)
+# Mapeo de roles en inglés a español
 ROLE_NAMES = {
-    'werewolf': 'Werewolf',
-    'seer': 'Pitonisa',
+    'werewolf': 'Lobo',
+    'seer': 'Vidente',
     'robber': 'Ladrón',
     'troublemaker': 'Alborotadora',
     'drunk': 'Borracho',
@@ -20,119 +20,110 @@ class GameLogic:
         self.game_state = 'setup'
         self.current_phase = None
         self.phase_order = []
+        self.ROLE_NAMES = ROLE_NAMES
         
     def setup_game(self):
-        """Configura el juego: asigna roles"""
+        """Configura el juego: asigna roles aleatoriamente"""
         num_players = len(self.players)
-        
-        # Roles simples para testing
+
+        # Roles por número de jugadores
         if num_players == 2:
             available_roles = ['werewolf', 'werewolf', 'seer', 'villager', 'villager']
         elif num_players == 3:
             available_roles = ['werewolf', 'werewolf', 'seer', 'robber', 'villager', 'villager']
         else:
-            # Para 4+ jugadores
             available_roles = ['werewolf', 'werewolf', 'seer', 'robber', 'troublemaker', 'drunk', 'villager', 'villager']
-        
+
         random.shuffle(available_roles)
-        
+
         # Asignar roles a jugadores
         for i, player in enumerate(self.players):
             player['original_role'] = available_roles[i]
             player['current_role'] = available_roles[i]
             player['has_acted'] = False
-            
-        # 3 cartas al centro
+
+        # Cartas al centro
         self.center_cards = available_roles[num_players:num_players+3]
-        
+
         # Orden de fases
         self.phase_order = ['werewolf', 'seer', 'robber', 'troublemaker', 'drunk', 'insomniac']
-        
+
         self.game_state = 'night'
-        
+
         return {
             'players': self.players,
             'center_cards': len(self.center_cards),
             'game_state': self.game_state,
             'phase_order': self.phase_order
         }
-    
+
     def start_night_phase(self, phase):
         """Inicia una fase nocturna"""
         self.current_phase = phase
-        
-        # Encontrar jugadores que pueden actuar
-        players_can_act = []
-        for player in self.players:
-            if player['original_role'] == phase and not player['has_acted']:
-                players_can_act.append({
-                    'socket_id': player['socket_id'],
-                    'username': player['username']
-                })
-        
+
+        players_can_act = [
+            {'socket_id': p['socket_id'], 'username': p['username']}
+            for p in self.players
+            if p['original_role'] == phase and not p['has_acted']
+        ]
+
         return {
             'phase': phase,
-            'role_name': ROLE_NAMES.get(phase, phase.title()),
-            'description': f'Es el turno de {ROLE_NAMES.get(phase, phase)}',
+            'role_name': self.ROLE_NAMES.get(phase, phase.title()),
+            'description': f'Es el turno de {self.ROLE_NAMES.get(phase, phase)}',
             'players_can_act': players_can_act
         }
-    
+
     def get_player_by_socket_id(self, socket_id):
-        """Obtiene un jugador por su socket_id"""
-        for player in self.players:
-            if player['socket_id'] == socket_id:
-                return player
-        return None
-    
+        """Busca un jugador por su socket ID"""
+        return next((p for p in self.players if p['socket_id'] == socket_id), None)
+
     def can_player_act_in_phase(self, socket_id, phase):
-        """Verifica si un jugador puede actuar"""
+        """Verifica si el jugador puede actuar en la fase actual"""
         player = self.get_player_by_socket_id(socket_id)
-        if not player:
-            return False
-        return (player['original_role'] == phase and 
-                not player['has_acted'] and 
-                self.current_phase == phase)
-    
+        return (
+            player and
+            player['original_role'] == phase and
+            not player['has_acted'] and
+            self.current_phase == phase
+        )
+
     def get_players_with_role(self, role):
-        """Obtiene jugadores con un rol específico"""
+        """Devuelve jugadores con un rol específico (actual)"""
         return [p for p in self.players if p['current_role'] == role]
 
+
+# Función específica para la acción de los lobos
 def execute_werewolf_action(game, socket_id, action_data):
-    """Acción de los lobos - AUTOMÁTICA al empezar la fase"""
     player = game.get_player_by_socket_id(socket_id)
-    if not player or not game.can_player_act_in_phase(socket_id, 'werewolf'):
+    if not player:
+        return {'success': False, 'error': 'Jugador no encontrado'}
+
+    print(f"DEBUG: Player {player['username']} actúa como lobo")
+
+    if not game.can_player_act_in_phase(socket_id, 'werewolf'):
         return {'success': False, 'error': 'No puedes actuar ahora'}
-    
-    # Obtener todos los lobos
+
     werewolves = game.get_players_with_role('werewolf')
-    other_werewolves = []
-    
-    # Encontrar otros lobos (excluyendo al jugador actual)
-    for wolf in werewolves:
-        if wolf['socket_id'] != socket_id:
-            other_werewolves.append({
-                'username': wolf['username'],
-                'socket_id': wolf['socket_id']
-            })
-    
+    other_werewolves = [
+        {'username': w['username'], 'socket_id': w['socket_id']}
+        for w in werewolves if w['socket_id'] != socket_id
+    ]
+
     center_card = None
     is_lone_wolf = len(werewolves) == 1
-    
-    # Si eligió ver una carta del centro (solo lobos solitarios)
+
     if is_lone_wolf and 'center_index' in action_data:
-        center_index = action_data['center_index']
-        if 0 <= center_index < len(game.center_cards):
+        index = action_data['center_index']
+        if 0 <= index < len(game.center_cards):
             center_card = {
-                'index': center_index,
-                'role': ROLE_NAMES.get(game.center_cards[center_index], game.center_cards[center_index])
+                'index': index,
+                'role': game.ROLE_NAMES.get(game.center_cards[index], game.center_cards[index])
             }
-            # Marcar como actuado después de ver la carta del centro
             player['has_acted'] = True
     elif not is_lone_wolf:
-        # Si hay múltiples lobos, se marcan como actuados automáticamente
         player['has_acted'] = True
-    # Si es lobo solitario pero no eligió carta, NO marcar como actuado aún
-    
+
     return {
         'success': True,
         'other_werewolves': other_werewolves,
