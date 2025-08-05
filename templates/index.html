@@ -25,7 +25,6 @@
             margin: 5px;
             border: none;
             border-radius: 5px;
-            font-size: 14px;
         }
         button {
             background-color: #e74c3c;
@@ -35,9 +34,6 @@
         button:hover {
             background-color: #c0392b;
         }
-        .hidden {
-            display: none;
-        }
         #messages {
             height: 200px;
             overflow-y: auto;
@@ -45,294 +41,413 @@
             padding: 10px;
             border-radius: 5px;
             margin-top: 10px;
-            font-family: monospace;
-            font-size: 12px;
         }
-        .role-info {
-            background-color: #1a252f;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 10px 0;
-            border-left: 4px solid #e74c3c;
-        }
-        .phase-info {
-            background-color: #1a252f;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 10px 0;
-            border-left: 4px solid #f39c12;
-        }
-        .action-buttons {
-            margin-top: 15px;
-        }
-        .action-buttons button {
-            margin: 5px;
-            background-color: #3498db;
-        }
-        .action-buttons button:hover {
-            background-color: #2980b9;
-        }
-        .center-card-btn {
-            background-color: #9b59b6 !important;
-        }
-        .center-card-btn:hover {
-            background-color: #8e44ad !important;
-        }
-        .game-log {
+        .user-list {
             background-color: #2c3e50;
             padding: 10px;
             border-radius: 5px;
-            height: 150px;
-            overflow-y: auto;
-            font-size: 13px;
+            margin-top: 10px;
         }
     </style>
 </head>
 <body>
     <h1>🐺 One Night Werewolf</h1>
     
-    <!-- Pantalla de unirse -->
-    <div id="join-screen" class="container">
+    <!-- Pantalla de inicio -->
+    <div id="start-screen" class="container">
         <h3>🎮 Unirse al juego</h3>
-        <input type="text" id="username" placeholder="Tu nombre" maxlength="20">
+        <input type="text" id="username" placeholder="Ingresa tu nombre" maxlength="20">
         <br><br>
-        
-        <button onclick="createRoom()" style="background-color: #27ae60;">🆕 Crear Sala Nueva</button>
+        <button onclick="createRoom()">Crear Sala</button>
         <br><br>
-        
-        <div style="margin: 10px 0; text-align: center;">--- O ---</div>
-        
-        <input type="text" id="room-code" placeholder="Código de sala (ej: SALA1)" maxlength="10">
-        <button onclick="joinRoom()">🔗 Unirse a Sala</button>
+        <input type="text" id="room-code" placeholder="Código de sala (ej: ABCD)" maxlength="4" style="text-transform: uppercase;">
+        <button onclick="joinRoom()">Unirse a Sala</button>
         
         <div id="connection-status">Estado: Desconectado</div>
     </div>
 
     <!-- Pantalla de sala -->
-    <div id="lobby-screen" class="container hidden">
-        <h3>📋 Sala: <span id="current-room">----</span></h3>
-        <p><strong>Tu nombre:</strong> <span id="your-username">----</span></p>
-        
-        <div class="container">
-            <h4>👥 Jugadores en la sala:</h4>
-            <div id="player-list">Esperando jugadores...</div>
+    <div id="room-screen" class="container" style="display: none;">
+        <h3 id="room-title">Sala: ----</h3>
+        <div id="room-info">
+            <p><strong>Código de sala:</strong> <span id="room-code-display">----</span></p>
+            <p><strong>Tu nombre:</strong> <span id="your-username">----</span></p>
         </div>
         
-        <button onclick="startGame()">🚀 Iniciar Juego</button>
-        <button onclick="leaveRoom()">🚪 Salir</button>
+        <div class="user-list">
+            <h4>Jugadores en la sala:</h4>
+            <div id="room-players">Cargando...</div>
+        </div>
+        
+        <button id="start-game-btn" onclick="startGame()" style="display: none;">🚀 Iniciar Juego</button>
+        <button onclick="leaveRoom()">🚪 Salir de la Sala</button>
     </div>
 
     <!-- Pantalla de juego -->
-    <div id="game-screen" class="container hidden">
-        <h3 id="game-title">🌙 Noche - Preparando...</h3>
+    <div id="game-screen" class="container" style="display: none;">
+        <h3 id="game-title">🌙 Noche - Fase: Preparando...</h3>
         
-        <!-- Información del rol -->
-        <div id="role-info" class="role-info">
+        <div id="role-info" class="container" style="background-color: #1a252f;">
             <h4>Tu Rol:</h4>
-            <p><strong id="your-role">Esperando asignación...</strong></p>
-            <p id="role-description">El juego está comenzando...</p>
+            <p><strong id="your-role">Cargando...</strong></p>
+            <p id="role-description">Esperando asignación...</p>
         </div>
         
-        <!-- Información de la fase actual -->
-        <div id="phase-info" class="phase-info">
+        <div id="phase-info" class="container" style="background-color: #1a252f;">
             <h4>Fase Actual:</h4>
-            <p id="phase-description">Preparando...</p>
-            
-            <!-- Botones de acción -->
-            <div id="action-buttons" class="action-buttons hidden">
-                <!-- Los botones aparecerán aquí dinámicamente -->
+            <p id="current-phase-description">El juego está comenzando...</p>
+            <div id="action-buttons" style="display: none;">
+                <!-- Botones de acción aparecerán aquí según el rol -->
             </div>
         </div>
         
-        <!-- Log del juego -->
-        <div class="container">
-            <h4>📜 Log del juego:</h4>
-            <div id="game-log" class="game-log">
-                <p>El juego está comenzando...</p>
+        <div id="phase-messages" class="container" style="background-color: #1a252f;">
+            <h4>Información de la Noche:</h4>
+            <div id="night-messages" style="height: 150px; overflow-y: auto;">
+                <p>La noche está comenzando...</p>
             </div>
         </div>
     </div>
 
-    <!-- Debug/Mensajes -->
     <div class="container">
-        <h4>🔧 Debug:</h4>
+        <h3>Mensajes del servidor:</h3>
         <div id="messages"></div>
     </div>
 
     <script>
+        // Conectar al servidor WebSocket
         const socket = io();
 
         // Variables globales
         let currentUsername = '';
-        let currentRoom = '';
+        let currentRoomCode = '';
+        let isHost = false;
         let currentRole = '';
-        let gamePhase = '';
+        let gameState = 'waiting'; // waiting, night, discussion, voting
 
-        // Referencias DOM
-        const joinScreen = document.getElementById('join-screen');
-        const lobbyScreen = document.getElementById('lobby-screen');
+        // Elementos del DOM
+        const startScreen = document.getElementById('start-screen');
+        const roomScreen = document.getElementById('room-screen');
         const gameScreen = document.getElementById('game-screen');
 
-        // Debug: Escuchar todos los eventos
+        // Debug: Escuchar TODOS los eventos para ver qué llega
         socket.onAny((eventName, ...args) => {
-            console.log(`🔧 EVENT: ${eventName}`, args);
-            addMessage(`EVENT: ${eventName} - ${JSON.stringify(args).substring(0, 100)}...`);
+            console.log(`DEBUG: Evento recibido: ${eventName}`, args);
         });
 
-        // === EVENTOS DEL SOCKET ===
-
+        // Eventos del socket
         socket.on('connect', function() {
             updateConnectionStatus('Conectado ✅');
-            addMessage('Conectado al servidor');
+            addMessage('Conectado al servidor correctamente');
         });
 
         socket.on('disconnect', function() {
             updateConnectionStatus('Desconectado ❌');
             addMessage('Desconectado del servidor');
-            showJoinScreen();
+            showStartScreen();
+        });
+
+        socket.on('status', function(data) {
+            addMessage('Servidor: ' + data.msg);
         });
 
         socket.on('room_created', function(data) {
-            addMessage(`✅ Sala creada: ${data.room} - Código: ${data.room}`);
+            addMessage(`¡Sala ${data.room_code} creada exitosamente!`);
             currentUsername = data.username;
-            currentRoom = data.room;
-            showLobbyScreen();
+            currentRoomCode = data.room_code;
+            isHost = data.is_host;
+            showRoomScreen();
         });
 
         socket.on('room_joined', function(data) {
-            addMessage(`✅ Te uniste a la sala: ${data.room}`);
+            addMessage(`¡Te uniste a la sala ${data.room_code}!`);
             currentUsername = data.username;
-            currentRoom = data.room;
-            showLobbyScreen();
+            currentRoomCode = data.room_code;
+            isHost = data.is_host;
+            showRoomScreen();
         });
 
         socket.on('room_updated', function(data) {
-            updatePlayerList(data.players);
+            updateRoomPlayers(data.players);
+        });
+
+        socket.on('error', function(data) {
+            alert('Error: ' + data.msg);
+            addMessage('Error: ' + data.msg);
+        });
+
+        socket.on('game_starting', function(data) {
+            addMessage('🎮 ' + data.msg);
+            alert('¡El juego está comenzando!');
         });
 
         socket.on('game_started', function(data) {
-            addMessage('🎮 ¡Juego iniciado!');
+            addMessage('🌙 ' + data.msg);
+            gameState = 'preparation'; // Cambiar a preparación primero
             showGameScreen();
-            addGameLog('🌙 El juego ha comenzado. Es de noche...');
+            addNightMessage('El juego ha comenzado. Es de noche...');
+            // NO mostrar rol aún
         });
 
+        // Tu rol asignado (ahora llega después de 5 segundos)
         socket.on('your_role', function(data) {
             currentRole = data.role;
             document.getElementById('your-role').textContent = data.role_name;
-            document.getElementById('role-description').textContent = `Eres: ${data.role_name}`;
-            addGameLog(`🎭 Tu rol es: ${data.role_name}`);
+            document.getElementById('role-description').textContent = data.description;
+            addNightMessage(`Tu rol es: ${data.role_name}`);
+            gameState = 'night'; // Ahora sí cambiar a noche
+        });
+
+        // Mensajes del narrador
+        socket.on('narrator_message', function(data) {
+            addNightMessage(`🎭 NARRADOR: ${data.message}`);
+            if (data.phase === 'eyes_closed') {
+                document.getElementById('current-phase-description').textContent = 'Todos cierran los ojos...';
+            }
+        });
+
+        // Información automática para lobos (evento separado para múltiples lobos)
+        socket.on('werewolf_multiple_info', function(data) {
+            console.log('DEBUG: Recibido werewolf_multiple_info:', data);
+            addNightMessage(`👁️ ${data.message}`);
+            addNightMessage('Como hay múltiples lobos, no puedes ver cartas del centro.');
+        });
+
+        // Es tu turno de actuar
+        socket.on('your_turn', function(data) {
+            console.log('DEBUG: Recibido your_turn:', data);
+            
+            if (data.can_act) {
+                // Si tiene información de lobo, mostrarla primero
+                if (data.werewolf_info) {
+                    addNightMessage(`👁️ ${data.werewolf_info.message}`);
+                }
+                
+                if (data.action_type === 'choose_center_card') {
+                    // Solo para lobos solitarios: mostrar botones del centro
+                    showCenterCardButtons();
+                    addNightMessage(`🃏 Elige una carta del centro para ver:`);
+                } else if (data.phase !== 'werewolf') {
+                    // Para otros roles (NO lobos)
+                    showActionButtons(data.phase);
+                    addNightMessage(`¡Es tu turno! Puedes actuar como ${data.role_name}`);
+                }
+                // Para lobos normales (múltiples), NO hacer nada porque es automático
+            }
+        });
+
+        // Información específica de la fase de lobos
+        socket.on('werewolf_phase_info', function(data) {
+            console.log('DEBUG: Recibido werewolf_phase_info:', data);
+            
+            if (data.is_lone_wolf) {
+                addNightMessage('👁️ Eres el único lobo. Puedes elegir UNA carta del centro para ver.');
+                showCenterCardButtons();
+                addNightMessage('🃏 Elige una carta del centro para ver:');
+            } else {
+                const otherWolves = data.other_werewolves.map(w => w.username).join(', ');
+                addNightMessage(`👁️ Otros lobos: ${otherWolves}`);
+                addNightMessage('Como hay múltiples lobos, no puedes ver cartas del centro.');
+            }
         });
 
         socket.on('night_phase_started', function(data) {
-            gamePhase = data.phase;
             document.getElementById('game-title').textContent = `🌙 Noche - Fase: ${data.role_name}`;
-            document.getElementById('phase-description').textContent = data.description;
-            addGameLog(`--- Fase: ${data.role_name} ---`);
+            document.getElementById('current-phase-description').textContent = 
+                `${data.role_name}: ${data.description}`;
+            addNightMessage(`--- Fase: ${data.role_name} ---`);
+        });
 
-            // Lógica específica para lobos
-            if (data.phase === 'werewolf') {
-                handleWerewolfPhase(data);
-            } else {
-                // Para otras fases futuras
-                if (data.players_can_act && data.players_can_act.some(p => p.socket_id === socket.id)) {
-                    showActionButtons(['Actuar']);
-                }
-            }
+        socket.on('phase_completed', function(data) {
+            addNightMessage(`Fase ${data.phase} completada.`);
+            hideActionButtons();
+        });
+
+        socket.on('night_ended', function(data) {
+            gameState = 'discussion';
+            document.getElementById('game-title').textContent = '☀️ Día - Discusión';
+            document.getElementById('current-phase-description').textContent = 
+                'Es hora de discutir quién podría ser un lobo...';
+            addNightMessage('--- LA NOCHE HA TERMINADO ---');
+            hideActionButtons();
         });
 
         socket.on('action_result', function(data) {
             if (data.success) {
                 if (data.center_card) {
-                    addGameLog(`🃏 Carta del centro ${data.center_card.index + 1}: ${data.center_card.role}`);
+                    addNightMessage(`🃏 Carta del centro ${data.center_card.index + 1}: ${data.center_card.role}`);
+                    hideActionButtons(); // Ocultar después de ver carta del centro
                 }
-                hideActionButtons();
-            } else {
-                addGameLog(`❌ Error: ${data.error}`);
+            } else if (data.error) {
+                addNightMessage(`❌ Error: ${data.error}`);
             }
         });
 
-        // === FUNCIONES DE MANEJO DE FASES ===
-
-        function handleWerewolfPhase(data) {
-            if (currentRole === 'werewolf') {
-                if (data.is_lone_wolf) {
-                    addGameLog('👁️ Eres el único lobo. Puedes ver una carta del centro.');
-                    showCenterCardButtons();
-                } else if (data.other_werewolves) {
-                    const otherWolves = data.other_werewolves.map(w => w.username).join(', ');
-                    addGameLog(`👁️ Otros lobos: ${otherWolves}`);
-                    addGameLog('Como hay múltiples lobos, no puedes ver cartas del centro.');
-                }
+        // Funciones principales
+        function createRoom() {
+            const username = document.getElementById('username').value.trim();
+            
+            if (!username) {
+                alert('Por favor ingresa un nombre');
+                return;
             }
+
+            if (username.length > 20) {
+                alert('El nombre debe tener máximo 20 caracteres');
+                return;
+            }
+
+            socket.emit('create_room', {
+                username: username
+            });
         }
 
-        // === FUNCIONES DE INTERFAZ ===
+        function joinRoom() {
+            const username = document.getElementById('username').value.trim();
+            const roomCode = document.getElementById('room-code').value.trim().toUpperCase();
+            
+            if (!username) {
+                alert('Por favor ingresa un nombre');
+                return;
+            }
 
-        function showJoinScreen() {
-            joinScreen.classList.remove('hidden');
-            lobbyScreen.classList.add('hidden');
-            gameScreen.classList.add('hidden');
+            if (!roomCode || roomCode.length !== 4) {
+                alert('Por favor ingresa un código de sala de 4 letras');
+                return;
+            }
+
+            socket.emit('join_room', {
+                username: username,
+                room_code: roomCode
+            });
         }
 
-        function showLobbyScreen() {
-            joinScreen.classList.add('hidden');
-            lobbyScreen.classList.remove('hidden');
-            gameScreen.classList.add('hidden');
+        function startGame() {
+            if (!isHost) {
+                alert('Solo el host puede iniciar el juego');
+                return;
+            }
+            
+            socket.emit('start_game');
+        }
 
-            document.getElementById('current-room').textContent = currentRoom;
+        function leaveRoom() {
+            location.reload();
+        }
+
+        // Funciones de interfaz
+        function showStartScreen() {
+            startScreen.style.display = 'block';
+            roomScreen.style.display = 'none';
+            gameScreen.style.display = 'none';
+        }
+
+        function showRoomScreen() {
+            startScreen.style.display = 'none';
+            roomScreen.style.display = 'block';
+            gameScreen.style.display = 'none';
+            
+            document.getElementById('room-title').textContent = `Sala: ${currentRoomCode}`;
+            document.getElementById('room-code-display').textContent = currentRoomCode;
             document.getElementById('your-username').textContent = currentUsername;
+            
+            const startBtn = document.getElementById('start-game-btn');
+            startBtn.style.display = isHost ? 'block' : 'none';
         }
 
         function showGameScreen() {
-            joinScreen.classList.add('hidden');
-            lobbyScreen.classList.add('hidden');
-            gameScreen.classList.remove('hidden');
+            startScreen.style.display = 'none';
+            roomScreen.style.display = 'none';
+            gameScreen.style.display = 'block';
         }
 
-        function showActionButtons(buttons) {
+        function updateRoomPlayers(players) {
+            const playersDiv = document.getElementById('room-players');
+            
+            if (players.length === 0) {
+                playersDiv.textContent = 'No hay jugadores';
+                return;
+            }
+
+            playersDiv.innerHTML = '';
+            players.forEach(player => {
+                const playerElement = document.createElement('div');
+                const hostLabel = player.is_host ? ' 👑 (Host)' : '';
+                playerElement.textContent = `👤 ${player.username}${hostLabel}`;
+                playersDiv.appendChild(playerElement);
+            });
+        }
+
+        function addNightMessage(message) {
+            const messagesDiv = document.getElementById('night-messages');
+            const messageElement = document.createElement('p');
+            messageElement.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function showActionButtons(phase) {
             const actionDiv = document.getElementById('action-buttons');
             actionDiv.innerHTML = '';
-            actionDiv.classList.remove('hidden');
+            actionDiv.style.display = 'block';
 
-            buttons.forEach(buttonText => {
-                const button = document.createElement('button');
-                button.textContent = buttonText;
-                button.onclick = () => performAction(buttonText);
-                actionDiv.appendChild(button);
-            });
+            // Para la mayoría de roles (no lobos, ya que tienen manejo especial)
+            if (phase !== 'werewolf') {
+                const actionBtn = document.createElement('button');
+                actionBtn.textContent = `🎯 Realizar acción de ${phase}`;
+                actionBtn.onclick = () => performRoleAction(phase);
+                actionDiv.appendChild(actionBtn);
+            }
         }
 
         function showCenterCardButtons() {
             const actionDiv = document.getElementById('action-buttons');
             actionDiv.innerHTML = '';
-            actionDiv.classList.remove('hidden');
+            actionDiv.style.display = 'block';
+            
+            // Botones para elegir carta del centro (solo para lobo solitario)
+            const centerBtn1 = document.createElement('button');
+            centerBtn1.textContent = '🃏 Ver carta centro 1';
+            centerBtn1.onclick = () => performWerewolfAction(0);
+            actionDiv.appendChild(centerBtn1);
 
-            for (let i = 0; i < 3; i++) {
-                const button = document.createElement('button');
-                button.textContent = `🃏 Ver carta centro ${i + 1}`;
-                button.className = 'center-card-btn';
-                button.onclick = () => chooseCenterCard(i);
-                actionDiv.appendChild(button);
-            }
+            const centerBtn2 = document.createElement('button');
+            centerBtn2.textContent = '🃏 Ver carta centro 2';
+            centerBtn2.onclick = () => performWerewolfAction(1);
+            actionDiv.appendChild(centerBtn2);
+
+            const centerBtn3 = document.createElement('button');
+            centerBtn3.textContent = '🃏 Ver carta centro 3';
+            centerBtn3.onclick = () => performWerewolfAction(2);
+            actionDiv.appendChild(centerBtn3);
+        }
+
+        function performRoleAction(phase) {
+            // Para otros roles (implementar más tarde)
+            socket.emit('night_action', {
+                action_type: phase
+            });
         }
 
         function hideActionButtons() {
-            document.getElementById('action-buttons').classList.add('hidden');
+            const actionDiv = document.getElementById('action-buttons');
+            actionDiv.style.display = 'none';
+            actionDiv.innerHTML = '';
         }
 
-        function updatePlayerList(players) {
-            const listDiv = document.getElementById('player-list');
-            if (players.length === 0) {
-                listDiv.textContent = 'No hay jugadores';
+        function performWerewolfAction(centerIndex = null) {
+            // Solo permitir si se especifica un índice del centro
+            if (centerIndex === null) {
+                addNightMessage('❌ Los lobos se ven automáticamente. No necesitas hacer nada más.');
                 return;
             }
+            
+            const actionData = {
+                action_type: 'werewolf',
+                center_index: centerIndex
+            };
 
-            listDiv.innerHTML = '';
-            players.forEach(playerName => {
-                const playerDiv = document.createElement('div');
-                playerDiv.textContent = `👤 ${playerName}`;
-                listDiv.appendChild(playerDiv);
-            });
+            socket.emit('night_action', actionData);
         }
 
         function updateConnectionStatus(status) {
@@ -347,111 +462,26 @@
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
-        function addGameLog(message) {
-            const logDiv = document.getElementById('game-log');
-            const logElement = document.createElement('p');
-            logElement.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
-            logDiv.appendChild(logElement);
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }
-
-        // === FUNCIONES DE ACCIONES ===
-
-        function createRoom() {
-            const username = document.getElementById('username').value.trim();
-
-            if (!username) {
-                alert('Por favor ingresa tu nombre');
-                return;
-            }
-
-            // Generar código de sala aleatorio
-            const roomCode = generateRoomCode();
-            
-            addMessage(`Creando sala ${roomCode} como ${username}`);
-            socket.emit('join', {
-                username: username,
-                room: roomCode
-            });
-        }
-
-        function joinRoom() {
-            const username = document.getElementById('username').value.trim();
-            const room = document.getElementById('room-code').value.trim();
-
-            if (!username || !room) {
-                alert('Por favor ingresa tu nombre y código de sala');
-                return;
-            }
-
-            addMessage(`Intentando unirse a sala ${room} como ${username}`);
-            socket.emit('join', {
-                username: username,
-                room: room
-            });
-        }
-
-        function generateRoomCode() {
-            // Generar código de 4 letras aleatorio
-            const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-            let code = '';
-            for (let i = 0; i < 4; i++) {
-                code += letters.charAt(Math.floor(Math.random() * letters.length));
-            }
-            return code;
-        }
-
-        function startGame() {
-            if (!currentRoom) {
-                alert('No estás en una sala');
-                return;
-            }
-
-            addMessage('Iniciando juego...');
-            socket.emit('start_game', {
-                room: currentRoom
-            });
-        }
-
-        function leaveRoom() {
-            location.reload(); // Método simple para salir
-        }
-
-        function performAction(action) {
-            addGameLog(`Realizando acción: ${action}`);
-            socket.emit('role_action', {
-                room: currentRoom,
-                phase: gamePhase,
-                action_data: { action: action }
-            });
-        }
-
-        function chooseCenterCard(index) {
-            addGameLog(`Eligiendo carta del centro ${index + 1}...`);
-            socket.emit('role_action', {
-                room: currentRoom,
-                phase: 'werewolf',
-                action_data: { center_index: index }
-            });
-        }
-
-        // === EVENT LISTENERS ===
-
+        // Event listeners
         document.getElementById('username').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
-                createRoom(); // Por defecto, crear sala nueva con Enter
+                createRoom();
             }
         });
 
-        document.getElementById('room-code').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                joinRoom();
+        document.addEventListener('DOMContentLoaded', function() {
+            const roomCodeInput = document.getElementById('room-code');
+            if (roomCodeInput) {
+                roomCodeInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        joinRoom();
+                    }
+                });
+                
+                roomCodeInput.addEventListener('input', function(e) {
+                    e.target.value = e.target.value.toUpperCase();
+                });
             }
-        });
-
-        // Convertir código de sala a mayúsculas automáticamente
-        document.getElementById('room-code').addEventListener('input', function(e) {
-            e.target.value = e.target.value.toUpperCase();
         });
     </script>
 </body>
