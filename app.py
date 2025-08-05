@@ -1,132 +1,532 @@
 from flask import Flask, render_template, request
-from flask_socketio import SocketIO, join_room, emit
-from game_logic import GameLogic, execute_werewolf_action
+from flask_socketio import SocketIO, emit, join_room, leave_room
 import random
+import string
+from game_logic import GameLogic, execute_werewolf_action, ROLE_NAMES, TestGameLogic
 
+# Crear la aplicación Flask
 app = Flask(__name__)
-socketio = SocketIO(app)
+app.config['SECRET_KEY'] = 'tu_clave_secreta_aqui'
 
-rooms = {}
+# Inicializar SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Almacenar información de salas y jugadores
+rooms = {}  # room_code: {'players': [player_data], 'game_state': 'waiting', 'game': GameLogic}
+players = {}  # socket_id: {'username': str, 'room_code': str}
+
+def generate_room_code():
+    """Genera un código de sala de 4 letras"""
+    return ''.join(random.choices(string.ascii_uppercase, k=4))
 
 @app.route('/')
 def index():
+    """Página principal"""
     return render_template('index.html')
 
-@socketio.on('join')
-def handle_join(data):
-    username = data['username']
-    room = data['room']
+@app.route('/debug')
+def debug():
+    """Página de debug"""
+    return render_template('debug.html')
 
-    join_room(room)
-
-    if room not in rooms:
-        rooms[room] = {
-            'players': [],
-            'game': None
+@socketio.on('create_test_room')
+def handle_create_test_room(data):
+    """Crear salas de testing con configuraciones predefinidas"""
+    test_type = data.get('test_type', 'lone_wolf')
+    
+    # Configuraciones de testing
+    test_configs = {
+        'lone_wolf': {
+            'players': ['TestPlayer1', 'TestPlayer2', 'TestPlayer3'],
+            'roles': ['werewolf', 'seer', 'villager'],
+            'description': '1 Lobo Solitario'
+        },
+        'multiple_wolves': {
+            'players': ['TestPlayer1', 'TestPlayer2', 'TestPlayer3', 'TestPlayer4'],
+            'roles': ['werewolf', 'werewolf', 'seer', 'villager'],
+            'description': '2 Lobos'
+        },
+        'no_wolves': {
+            'players': ['TestPlayer1', 'TestPlayer2', 'TestPlayer3'],
+            'roles': ['seer', 'robber', 'villager'],
+            'description': '0 Lobos'
         }
-
-    rooms[room]['players'].append({
-        'username': username,
-        'socket_id': request.sid,
-        'original_role': None,
-        'current_role': None,
-        'has_acted': False
+    }
+    
+    if test_type not in test_configs:
+        emit('error', {'msg': 'Tipo de test inválido'})
+        return
+    
+    config = test_configs[test_type]
+    room_code = f"TEST{random.randint(100, 999)}"
+    
+    # Crear jugadores ficticios
+    test_players = []
+    for i, player_name in enumerate(config['players']):
+        # Usar socket_id del usuario real para el primer jugador
+        socket_id = request.sid if i == 0 else f"fake_socket_{i}_{random.randint(1000, 9999)}"
+        
+        test_players.append({
+            'socket_id': socket_id,
+            'username': player_name,
+            'is_host': i == 0,
+            'original_role': config['roles'][i],
+            'current_role': config['roles'][i],
+            'has_acted': False
+        })
+    
+    # Registrar solo al jugador real
+    players[request.sid] = {
+        'username': config['players'][0],
+        'room_code': room_code
+    }
+    
+    # Crear sala de testing
+    rooms[room_code] = {
+        'players': test_players,
+        'game_state': 'waiting',
+        'host_id': request.sid,
+        'is_test_room': True
+    }
+    
+    print(f"DEBUG: Sala de testing creada: {room_code} - {config['description']}")
+    print(f"DEBUG: Roles asignados: {[f'{p['username']}={p['original_role']}' for p in test_players]}")
+    
+    emit('test_room_created', {
+        'room_code': room_code,
+        'config': config,
+        'username': config['players'][0],
+        'is_host': True
+    })
+    
+    emit('room_updated', {
+        'players': test_players,
+        'room_code': room_code
     })
 
-    emit('room_joined', {'room': room, 'username': username}, room=room)
-    emit('room_updated', {'players': [p['username'] for p in rooms[room]['players']]}, room=room)
+@socketio.on('connect')
+def handle_connect():
+    """Cuando un usuario se conecta"""
+    print(f'Usuario conectado: {request.sid}')
+    emit('status', {'msg': 'Conectado al servidor!'})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Cuando un usuario se desconecta"""
+    print(f'Usuario desconectado: {request.sid}')
+    
+    # Si el jugador estaba en una sala, removerlo
+    if request.sid in players:
+        player_data = players[request.sid]
+        room_code = player_data['room_code']
+        
+        # Remover jugador de la sala
+        if room_code in rooms:
+            rooms[room_code]['players'] = [
+                p for p in rooms[room_code]['players'] 
+                if p['socket_id'] != request.sid
+            ]
+            
+            # Si la sala quedó vacía, eliminarla
+            if not rooms[room_code]['players']:
+                del rooms[room_code]
+            else:
+                # Notificar a otros jugadores de la sala
+                socketio.emit('room_updated', {
+                    'players': rooms[room_code]['players'],
+                    'room_code': room_code
+                }, room=room_code)
+        
+        # Remover jugador del registro
+        del players[request.sid]
+
+@socketio.on('create_room')
+def handle_create_room(data):
+    """Crear una nueva sala"""
+    username = data['username'].strip()
+    
+    if not username or len(username) > 20:
+        emit('error', {'msg': 'Nombre inválido'})
+        return
+    
+    # Generar código único
+    room_code = generate_room_code()
+    while room_code in rooms:
+        room_code = generate_room_code()
+    
+    # Crear datos del jugador
+    player_data = {
+        'socket_id': request.sid,
+        'username': username,
+        'is_host': True
+    }
+    
+    # Crear sala
+    rooms[room_code] = {
+        'players': [player_data],
+        'game_state': 'waiting',
+        'host_id': request.sid
+    }
+    
+    # Registrar jugador
+    players[request.sid] = {
+        'username': username,
+        'room_code': room_code
+    }
+    
+    # Unir al jugador a la sala de Socket.IO
+    join_room(room_code)
+    
+    print(f'{username} creó la sala {room_code}')
+    
+    emit('room_created', {
+        'room_code': room_code,
+        'username': username,
+        'is_host': True
+    })
+    
+    emit('room_updated', {
+        'players': rooms[room_code]['players'],
+        'room_code': room_code
+    })
+
+@socketio.on('join_room')
+def handle_join_room(data):
+    """Unirse a una sala existente"""
+    username = data['username'].strip()
+    room_code = data['room_code'].strip().upper()
+    
+    if not username or len(username) > 20:
+        emit('error', {'msg': 'Nombre inválido'})
+        return
+    
+    if not room_code or room_code not in rooms:
+        emit('error', {'msg': 'Sala no encontrada'})
+        return
+    
+    # Verificar que el nombre no esté en uso en esta sala
+    existing_names = [p['username'].lower() for p in rooms[room_code]['players']]
+    if username.lower() in existing_names:
+        emit('error', {'msg': 'Ese nombre ya está en uso en esta sala'})
+        return
+    
+    # Verificar límite de jugadores (máximo 10 para One Night Werewolf)
+    if len(rooms[room_code]['players']) >= 10:
+        emit('error', {'msg': 'La sala está llena'})
+        return
+    
+    # Crear datos del jugador
+    player_data = {
+        'socket_id': request.sid,
+        'username': username,
+        'is_host': False
+    }
+    
+    # Agregar jugador a la sala
+    rooms[room_code]['players'].append(player_data)
+    
+    # Registrar jugador
+    players[request.sid] = {
+        'username': username,
+        'room_code': room_code
+    }
+    
+    # Unir al jugador a la sala de Socket.IO
+    join_room(room_code)
+    
+    print(f'{username} se unió a la sala {room_code}')
+    
+    emit('room_joined', {
+        'room_code': room_code,
+        'username': username,
+        'is_host': False
+    })
+    
+    # Notificar a todos en la sala
+    socketio.emit('room_updated', {
+        'players': rooms[room_code]['players'],
+        'room_code': room_code
+    }, room=room_code)
 
 @socketio.on('start_game')
-def handle_start_game(data):
-    room = data['room']
-    if room not in rooms:
+def handle_start_game():
+    """Iniciar el juego (solo el host puede hacerlo)"""
+    if request.sid not in players:
+        emit('error', {'msg': 'No estás en una sala'})
         return
+    
+    room_code = players[request.sid]['room_code']
+    
+    # Verificar que sea el host
+    if rooms[room_code]['host_id'] != request.sid:
+        emit('error', {'msg': 'Solo el host puede iniciar el juego'})
+        return
+    
+    # Verificar mínimo de jugadores (3 para testing, ideal 5+)
+    if len(rooms[room_code]['players']) < 3:
+        emit('error', {'msg': 'Necesitas al menos 3 jugadores para empezar'})
+        return
+    
+    # Crear instancia del juego
+    game = GameLogic(rooms[room_code]['players'].copy(), room_code)
+    game_setup = game.setup_game()
+    
+    # Guardar el juego en la sala
+    rooms[room_code]['game'] = game
+    rooms[room_code]['game_state'] = 'preparation'  # Cambiar a preparación
+    
+    # Notificar a todos que el juego comenzó (sin roles aún)
+    socketio.emit('game_started', {
+        'msg': '🌙 ¡El juego comenzó! Es de noche...',
+        'phase_order': game_setup['phase_order']
+    }, room=room_code)
+    
+    # Fase inicial: "Cerrad los ojos todos" (SIN enviar roles aún)
+    socketio.emit('narrator_message', {
+        'message': '🌙 Cerrad los ojos todos...',
+        'phase': 'eyes_closed'
+    }, room=room_code)
+    
+    # Después de 5 segundos: asignar roles y comenzar fases nocturnas
+    # Usar SocketIO background task en lugar de threading.Timer
+    socketio.start_background_task(delayed_role_assignment, room_code)
+    
+    print(f'Juego iniciado en sala {room_code} con {len(game.players)} jugadores')
 
-    players = rooms[room]['players']
-    game = GameLogic(players, room)
-    result = game.setup_game()
+def delayed_role_assignment(room_code):
+    """Tarea en background para asignar roles después del delay"""
+    import time
+    time.sleep(5.0)  # Esperar 5 segundos
+    
+    # Verificar que la sala aún existe y no está ya procesando
+    if room_code not in rooms or 'game' not in rooms[room_code]:
+        print(f"DEBUG: Sala {room_code} no existe en delayed_role_assignment")
+        return
+        
+    # Evitar ejecución doble
+    if rooms[room_code].get('roles_assigned', False):
+        print(f"DEBUG: Roles ya asignados en sala {room_code}, evitando duplicado")
+        return
+        
+    rooms[room_code]['roles_assigned'] = True
+    start_role_assignment_and_night(room_code)
 
-    rooms[room]['game'] = game
+def start_role_assignment_and_night(room_code: str):
+    """Asigna roles después de la preparación y comienza la noche"""
+    if room_code not in rooms or 'game' not in rooms[room_code]:
+        print(f"DEBUG: Sala {room_code} no encontrada en start_role_assignment_and_night")
+        return
+        
+    game = rooms[room_code]['game']
+    print(f"DEBUG: Iniciando asignación de roles en sala {room_code}")
+    
+    # AHORA sí enviar roles secretos a cada jugador
+    for player in game.players:
+        role_name = ROLE_NAMES.get(player['original_role'], player['original_role'])
+        print(f"DEBUG: Enviando rol {player['original_role']} ({role_name}) a {player['username']} (socket: {player['socket_id']})")
+        
+        # Verificar si el socket_id existe en la lista de jugadores conectados
+        socket_exists = False
+        for socket_id, player_data in players.items():
+            if socket_id == player['socket_id']:
+                socket_exists = True
+                break
+        
+        if socket_exists:
+            socketio.emit('your_role', {
+                'role': player['original_role'],
+                'role_name': role_name,
+                'description': f'Tu rol secreto es: {role_name}'
+            }, to=player['socket_id'])  # Cambiar 'room' por 'to'
+            print(f"DEBUG: ✅ Rol enviado a {player['username']}")
+        else:
+            print(f"DEBUG: ❌ Socket {player['socket_id']} no existe para {player['username']}")
+    
+    rooms[room_code]['game_state'] = 'night'
+    print(f"DEBUG: Estado cambiado a 'night' para sala {room_code}")
+    
+    # Comenzar la primera fase nocturna
+    if game.phase_order:
+        print(f"DEBUG: Iniciando fases nocturnas. Orden: {game.phase_order}")
+        start_next_night_phase(room_code)
+    else:
+        print(f"DEBUG: No hay fases nocturnas programadas")
 
-    print(f"Juego iniciado en sala {room} con {len(players)} jugadores")
-    print(f"DEBUG: Iniciando asignación de roles en sala {room}")
-
-    # Enviar el rol individual a cada jugador
-    for player in players:
-        role_name = player['original_role']
-        print(f"DEBUG: Enviando rol {role_name} ({game.ROLE_NAMES.get(role_name, role_name)}) a {player['username']} (socket: {player['socket_id']})")
-        socketio.emit('your_role', {
-            'role': role_name,
-            'role_name': game.ROLE_NAMES.get(role_name, role_name)
-        }, room=player['socket_id'])
-        print(f"DEBUG: ✅ Rol enviado a {player['username']}")
-
-    socketio.emit('game_started', {}, room=room)
-
-    game.game_state = 'night'
-    print(f"DEBUG: Estado cambiado a 'night' para sala {room}")
-    start_next_night_phase(room)
-
-def start_next_night_phase(room):
-    game = rooms[room]['game']
+def start_next_night_phase(room_code: str):
+    """Inicia la siguiente fase nocturna"""
+    if room_code not in rooms or 'game' not in rooms[room_code]:
+        return
+        
+    game = rooms[room_code]['game']
+    
     if not game.phase_order:
-        print("DEBUG: Todas las fases completadas.")
+        # No hay más fases, terminar la noche
+        end_night_phase(room_code)
         return
-
-    next_phase = game.phase_order.pop(0)
-    game.current_phase = next_phase
-    print(f"Iniciando fase: {next_phase} en sala {room}")
-
-    if next_phase == 'werewolf':
-        print(f"DEBUG: Procesando fase de lobos en sala {room}")
-        for player in game.players:
-            if player['original_role'] == 'werewolf':
-                print(f"DEBUG: Procesando lobo: {player['username']}")
-                result = execute_werewolf_action(game, player['socket_id'], {})
-                print(f"DEBUG: Resultado para {player['username']}: {result}")
-
-                if result['is_lone_wolf'] and not result['auto_reveal']:
-                    # Si es lobo solitario y puede ver una carta del centro, enviarle esa info
-                    socketio.emit('night_phase_started', {
-                        'phase': next_phase,
-                        'description': f"Eres el único lobo. Puedes ver una carta del centro.",
-                        'players_can_act': [{'socket_id': player['socket_id'], 'username': player['username']}],
-                        'is_lone_wolf': True,
-                        'center_card': None
-                    }, room=player['socket_id'])
+    
+    # Obtener la siguiente fase
+    current_phase = game.phase_order.pop(0)
+    phase_info = game.start_night_phase(current_phase)
+    
+    print(f'Iniciando fase: {current_phase} en sala {room_code}')
+    
+    # Notificar a todos sobre la fase actual
+    socketio.emit('night_phase_started', {
+        'phase': phase_info['phase'],
+        'role_name': phase_info['role_name'],
+        'description': phase_info['description']
+    }, room=room_code)
+    
+    # SPECIAL CASE: Lobos se ven automáticamente
+    if current_phase == 'werewolf':
+        print(f"DEBUG: Procesando fase de lobos en sala {room_code}")
+        
+        # Pequeño delay para asegurar que los clientes estén listos
+        import threading
+        
+        def send_werewolf_info():
+            # Enviar información automática a cada lobo
+            for player_info in phase_info['players_can_act']:
+                print(f"DEBUG: Procesando lobo: {player_info['username']}")
+                result = execute_werewolf_action(game, player_info['socket_id'], {})
+                print(f"DEBUG: Resultado para {player_info['username']}: {result}")
+                
+                # Si es lobo solitario, permitir elegir carta del centro
+                if result['is_lone_wolf']:
+                    socketio.emit('your_turn', {
+                        'phase': current_phase,
+                        'role_name': phase_info['role_name'],
+                        'can_act': True,
+                        'action_type': 'choose_center_card',
+                        'werewolf_info': {
+                            'other_werewolves': result['other_werewolves'],
+                            'is_lone_wolf': True,
+                            'message': 'Eres el único lobo. Puedes elegir UNA carta del centro para ver.'
+                        }
+                    }, to=player_info['socket_id'])  # Cambiar 'room' por 'to'
+                    print(f"DEBUG: {player_info['username']} es lobo solitario")
                 else:
-                    # Mostrarle al jugador los otros lobos (o nada si solo hay uno)
-                    socketio.emit('night_phase_started', {
-                        'phase': next_phase,
-                        'description': "Fase de lobos",
-                        'players_can_act': [{'socket_id': player['socket_id'], 'username': player['username']}],
-                        'is_lone_wolf': False,
+                    # Para múltiples lobos, enviar la información directamente
+                    other_wolves_names = [w['username'] for w in result['other_werewolves']]
+                    message = f"El otro lobo es: {', '.join(other_wolves_names)}" if len(other_wolves_names) == 1 else f"Los otros lobos son: {', '.join(other_wolves_names)}"
+                    
+                    socketio.emit('werewolf_multiple_info', {
                         'other_werewolves': result['other_werewolves'],
-                        'center_card': result['center_card']
-                    }, room=player['socket_id'])
+                        'is_lone_wolf': False,
+                        'message': message
+                    }, to=player_info['socket_id'])  # Cambiar 'room' por 'to'
+                    
+                    print(f"DEBUG: {player_info['username']} tiene otros lobos: {other_wolves_names}")
+            
+            # Si no hay lobos solitarios, verificar si la fase está completa
+            werewolves = game.get_players_with_role('werewolf')
+            if len(werewolves) > 1:
+                print(f"DEBUG: Múltiples lobos ({len(werewolves)}), avanzando automáticamente")
+                # Todos los lobos ya "actuaron" automáticamente, continuar
+                timer2 = threading.Timer(4.0, lambda: start_next_night_phase(room_code))
+                timer2.start()
+        
+        # Enviar la info después de 1 segundo
+        timer = threading.Timer(1.0, send_werewolf_info)
+        timer.start()
+    else:
+        # Para otros roles, notificar normalmente
+        for player_info in phase_info['players_can_act']:
+            socketio.emit('your_turn', {
+                'phase': current_phase,
+                'role_name': phase_info['role_name'],
+                'can_act': True
+            }, to=player_info['socket_id'])  # Cambiar 'room' por 'to'
 
+def end_night_phase(room_code: str):
+    """Termina la fase nocturna e inicia la discusión"""
+    if room_code not in rooms or 'game' not in rooms[room_code]:
         return
+        
+    rooms[room_code]['game_state'] = 'discussion'
+    
+    socketio.emit('night_ended', {
+        'msg': '☀️ ¡Amaneció! Es hora de discutir...',
+        'phase': 'discussion'
+    }, room=room_code)
+    
+    print(f'Fase nocturna terminada en sala {room_code}')
 
-    # Para otras fases
-    data = game.start_night_phase(next_phase)
-    socketio.emit('night_phase_started', data, room=room)
+@socketio.on('night_action')
+def handle_night_action(data):
+    """Manejar acciones nocturnas de los jugadores"""
+    if request.sid not in players:
+        emit('error', {'msg': 'No estás en una sala'})
+        return
+        
+    room_code = players[request.sid]['room_code']
+    
+    if (room_code not in rooms or 
+        'game' not in rooms[room_code] or 
+        rooms[room_code]['game_state'] != 'night'):
+        emit('error', {'msg': 'No es el momento de actuar'})
+        return
+    
+    game = rooms[room_code]['game']
+    action_type = data.get('action_type')
+    
+    # Ejecutar acción según el tipo
+    result = None
+    if action_type == 'werewolf':
+        result = execute_werewolf_action(game, request.sid, data)
+    
+    if result and result.get('success'):
+        emit('action_result', result)
+        
+        # Si el lobo solitario eligió una carta del centro, avanzar después de 3 segundos
+        if (action_type == 'werewolf' and 
+            result.get('center_card') and 
+            result.get('is_lone_wolf')):
+            print(f"DEBUG: Lobo solitario eligió carta del centro, avanzando en 3 segundos")
+            socketio.start_background_task(delayed_next_phase, room_code, 3.0)
+        else:
+            # Para otros casos, verificar si todos completaron la fase
+            check_phase_completion(room_code)
+    else:
+        emit('error', {'msg': result.get('error', 'Acción inválida')})
 
-@socketio.on('role_action')
-def handle_role_action(data):
-    room = data['room']
-    socket_id = request.sid
-    phase = data['phase']
-    action_data = data.get('action_data', {})
+def check_phase_completion(room_code: str):
+    """Verifica si todos los jugadores de la fase actual completaron sus acciones"""
+    if room_code not in rooms or 'game' not in rooms[room_code]:
+        return
+        
+    game = rooms[room_code]['game']
+    current_phase = game.current_phase
+    
+    # Verificar si todos los jugadores que podían actuar ya actuaron
+    players_in_phase = [p for p in game.players if p['original_role'] == current_phase]
+    all_acted = all(p['has_acted'] for p in players_in_phase)
+    
+    if all_acted:
+        # Continuar con la siguiente fase después de un delay
+        socketio.emit('phase_completed', {
+            'phase': current_phase,
+            'msg': f'Todos los {current_phase} terminaron. Continuando...'
+        }, room=room_code)
+        
+        # Usar un timer para dar tiempo a que se procese
+        socketio.start_background_task(delayed_next_phase, room_code, 2.0)
 
-    game = rooms[room]['game']
+# Funciones auxiliares para background tasks
+def delayed_next_phase(room_code, delay_seconds):
+    """Tarea en background para avanzar a la siguiente fase después de un delay"""
+    import time
+    time.sleep(delay_seconds)
+    start_next_night_phase(room_code)
 
-    print(f"DEBUG: Acción recibida en fase {phase} de {socket_id}: {action_data}")
-
-    if phase == 'werewolf':
-        result = execute_werewolf_action(game, socket_id, action_data)
-        emit('action_result', result, room=socket_id)
-
-    # En versiones siguientes, añadir lógica para seer, robber, etc.
+def delayed_werewolf_info(room_code, callback_function):
+    """Tarea en background para ejecutar acciones de lobos después de un delay"""
+    print(f"DEBUG: delayed_werewolf_info iniciada para sala {room_code}")
+    import time
+    time.sleep(2.0)  # Esperar 2 segundos
+    print(f"DEBUG: delayed_werewolf_info ejecutando callback para sala {room_code}")
+    callback_function()
+    print(f"DEBUG: delayed_werewolf_info completada para sala {room_code}")
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    socketio.run(app, debug=True, host='127.0.0.1', port=5000)
