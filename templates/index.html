@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>One Night Werewolf - Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #2c3e50;
+            color: white;
+        }
+        .container {
+            background-color: #34495e;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #e74c3c;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #c0392b;
+        }
+        #messages {
+            height: 200px;
+            overflow-y: auto;
+            background-color: #2c3e50;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        .user-list {
+            background-color: #2c3e50;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🐺 One Night Werewolf - Test de Conexión</h1>
+    
+    <!-- Pantalla de inicio -->
+    <div id="start-screen" class="container">
+        <h3>🎮 Unirse al juego</h3>
+        <input type="text" id="username" placeholder="Ingresa tu nombre" maxlength="20">
+        <br><br>
+        <button onclick="createRoom()">Crear Sala</button>
+        <br><br>
+        <input type="text" id="room-code" placeholder="Código de sala (ej: ABCD)" maxlength="4" style="text-transform: uppercase;">
+        <button onclick="joinRoom()">Unirse a Sala</button>
+        
+        <div id="connection-status">Estado: Desconectado</div>
+    </div>
+
+    <!-- Pantalla de sala -->
+    <div id="room-screen" class="container" style="display: none;">
+        <h3 id="room-title">Sala: ----</h3>
+        <div id="room-info">
+            <p><strong>Código de sala:</strong> <span id="room-code-display">----</span></p>
+            <p><strong>Tu nombre:</strong> <span id="your-username">----</span></p>
+        </div>
+        
+        <div class="user-list">
+            <h4>Jugadores en la sala:</h4>
+            <div id="room-players">Cargando...</div>
+        </div>
+        
+        <button id="start-game-btn" onclick="startGame()" style="display: none;">🚀 Iniciar Juego</button>
+        <button onclick="leaveRoom()">🚪 Salir de la Sala</button>
+    </div>
+
+    <div class="container">
+        <h3>Mensajes del servidor:</h3>
+        <div id="messages"></div>
+    </div>
+
+    <script>
+        // Conectar al servidor WebSocket
+        const socket = io();
+
+        // Variables globales
+        let currentUsername = '';
+        let currentRoomCode = '';
+        let isHost = false;
+
+        // Elementos del DOM
+        const startScreen = document.getElementById('start-screen');
+        const roomScreen = document.getElementById('room-screen');
+
+        // Cuando se conecta al servidor
+        socket.on('connect', function() {
+            updateConnectionStatus('Conectado ✅');
+            addMessage('Conectado al servidor correctamente');
+        });
+
+        // Cuando se desconecta
+        socket.on('disconnect', function() {
+            updateConnectionStatus('Desconectado ❌');
+            addMessage('Desconectado del servidor');
+            showStartScreen();
+        });
+
+        // Mensajes de estado del servidor
+        socket.on('status', function(data) {
+            addMessage('Servidor: ' + data.msg);
+        });
+
+        // Sala creada exitosamente
+        socket.on('room_created', function(data) {
+            addMessage(`¡Sala ${data.room_code} creada exitosamente!`);
+            currentUsername = data.username;
+            currentRoomCode = data.room_code;
+            isHost = data.is_host;
+            showRoomScreen();
+        });
+
+        // Unido a sala exitosamente
+        socket.on('room_joined', function(data) {
+            addMessage(`¡Te uniste a la sala ${data.room_code}!`);
+            currentUsername = data.username;
+            currentRoomCode = data.room_code;
+            isHost = data.is_host;
+            showRoomScreen();
+        });
+
+        // Actualización de jugadores en la sala
+        socket.on('room_updated', function(data) {
+            updateRoomPlayers(data.players);
+        });
+
+        // Errores del servidor
+        socket.on('error', function(data) {
+            alert('Error: ' + data.msg);
+            addMessage('Error: ' + data.msg);
+        });
+
+        // Juego iniciando
+        socket.on('game_starting', function(data) {
+            addMessage('🎮 ' + data.msg);
+            alert('¡El juego está comenzando!');
+        });
+
+        // Funciones para crear/unirse a salas
+        function createRoom() {
+            const username = document.getElementById('username').value.trim();
+            
+            if (!username) {
+                alert('Por favor ingresa un nombre');
+                return;
+            }
+
+            if (username.length > 20) {
+                alert('El nombre debe tener máximo 20 caracteres');
+                return;
+            }
+
+            socket.emit('create_room', {
+                username: username
+            });
+        }
+
+        function joinRoom() {
+            const username = document.getElementById('username').value.trim();
+            const roomCode = document.getElementById('room-code').value.trim().toUpperCase();
+            
+            if (!username) {
+                alert('Por favor ingresa un nombre');
+                return;
+            }
+
+            if (!roomCode || roomCode.length !== 4) {
+                alert('Por favor ingresa un código de sala de 4 letras');
+                return;
+            }
+
+            socket.emit('join_room', {
+                username: username,
+                room_code: roomCode
+            });
+        }
+
+        function startGame() {
+            if (!isHost) {
+                alert('Solo el host puede iniciar el juego');
+                return;
+            }
+            
+            socket.emit('start_game');
+        }
+
+        function leaveRoom() {
+            // Recargar la página para salir de la sala
+            location.reload();
+        }
+
+        // Funciones de interfaz
+        function showStartScreen() {
+            startScreen.style.display = 'block';
+            roomScreen.style.display = 'none';
+        }
+
+        function showRoomScreen() {
+            startScreen.style.display = 'none';
+            roomScreen.style.display = 'block';
+            
+            document.getElementById('room-title').textContent = `Sala: ${currentRoomCode}`;
+            document.getElementById('room-code-display').textContent = currentRoomCode;
+            document.getElementById('your-username').textContent = currentUsername;
+            
+            // Mostrar botón de iniciar solo si es host
+            const startBtn = document.getElementById('start-game-btn');
+            startBtn.style.display = isHost ? 'block' : 'none';
+        }
+
+        function updateRoomPlayers(players) {
+            const playersDiv = document.getElementById('room-players');
+            
+            if (players.length === 0) {
+                playersDiv.textContent = 'No hay jugadores';
+                return;
+            }
+
+            playersDiv.innerHTML = '';
+            players.forEach(player => {
+                const playerElement = document.createElement('div');
+                const hostLabel = player.is_host ? ' 👑 (Host)' : '';
+                playerElement.textContent = `👤 ${player.username}${hostLabel}`;
+                playersDiv.appendChild(playerElement);
+            });
+        }
+
+        // Funciones auxiliares
+        function updateConnectionStatus(status) {
+            document.getElementById('connection-status').textContent = `Estado: ${status}`;
+        }
+
+        function addMessage(message) {
+            const messagesDiv = document.getElementById('messages');
+            const messageElement = document.createElement('div');
+            messageElement.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function updateUserList(users) {
+            // Esta función ya no se usa, pero la dejamos por compatibilidad
+        }
+
+        // Permitir enviar con Enter
+        document.getElementById('username').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                createRoom();
+            }
+        });
+
+        // Permitir unirse con Enter en el código de sala
+        document.addEventListener('DOMContentLoaded', function() {
+            const roomCodeInput = document.getElementById('room-code');
+            if (roomCodeInput) {
+                roomCodeInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        joinRoom();
+                    }
+                });
+                
+                // Convertir a mayúsculas automáticamente
+                roomCodeInput.addEventListener('input', function(e) {
+                    e.target.value = e.target.value.toUpperCase();
+                });
+            }
+        });
+    </script>
+</body>
+</html>
